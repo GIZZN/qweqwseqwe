@@ -1,0 +1,508 @@
+@import "tailwindcss";
+
+/* Кастомные breakpoints для супер маленьких разрешений */
+@media (max-width: 374px) {
+  .xs\:text-xs { font-size: 0.75rem; line-height: 1rem; }
+  .xs\:text-sm { font-size: 0.875rem; line-height: 1.25rem; }
+  .xs\:p-1 { padding: 0.25rem; }
+  .xs\:p-2 { padding: 0.5rem; }
+  .xs\:px-1 { padding-left: 0.25rem; padding-right: 0.25rem; }
+  .xs\:px-2 { padding-left: 0.5rem; padding-right: 0.5rem; }
+  .xs\:py-1 { padding-top: 0.25rem; padding-bottom: 0.25rem; }
+  .xs\:py-2 { padding-top: 0.5rem; padding-bottom: 0.5rem; }
+  .xs\:gap-1 { gap: 0.25rem; }
+  .xs\:gap-2 { gap: 0.5rem; }
+  .xs\:space-x-1 > :not([hidden]) ~ :not([hidden]) { margin-left: 0.25rem; }
+  .xs\:space-y-1 > :not([hidden]) ~ :not([hidden]) { margin-top: 0.25rem; }
+  .xs\:w-6 { width: 1.5rem; }
+  .xs\:h-6 { height: 1.5rem; }
+  .xs\:w-8 { width: 2rem; }
+  .xs\:h-8 { height: 2rem; }
+  .xs\:hidden { display: none; }
+  .xs\:block { display: block; }
+  .xs\:inline { display: inline; }
+  .xs\:flex { display: flex; }
+  .xs\:grid { display: grid; }
+  .xs\:grid-cols-1 { grid-template-columns: repeat(1, minmax(0, 1fr)); }
+  .xs\:rounded-lg { border-radius: 0.5rem; }
+  .xs\:mb-2 { margin-bottom: 0.5rem; }
+  .xs\:mt-2 { margin-top: 0.5rem; }
+  .xs\:overflow-x-scroll { overflow-x: scroll; }
+  .xs\:min-w-0 { min-width: 0; }
+  .xs\:truncate { 
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .xs\:flex-col { flex-direction: column; }
+  .xs\:items-start { align-items: flex-start; }
+  .xs\:justify-center { justify-content: center; }
+  .xs\:w-full { width: 100%; }
+  .xs\:max-w-full { max-width: 100%; }
+}
+
+/* Дополнительные утилиты для адаптивности */
+@media (max-width: 480px) {
+  .mobile-compact { 
+    padding: 0.75rem !important;
+    font-size: 0.875rem !important;
+  }
+  .mobile-text-small {
+    font-size: 0.75rem !important;
+    line-height: 1rem !important;
+  }
+  .mobile-hidden { 
+    display: none !important; 
+  }
+  .mobile-stack {
+    flex-direction: column !important;
+    align-items: stretch !important;
+    gap: 0.5rem !important;
+  }
+}
+
+:root {
+  --background: #ffffff;
+  --foreground: #171717;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #0a0a0a;
+    --foreground: #ededed;
+  }
+}
+
+html, body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: Arial, Helvetica, sans-serif;
+  overflow-x: hidden;
+  max-width: 100%;
+  width: 100%;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+}
+
+/* Предотвращение горизонтального скролла на мобильных устройствах */
+* {
+  box-sizing: border-box;
+}
+
+.container {
+  max-width: 100%;
+  overflow-x: hidden;
+}
+
+/* Предотвращение скроллбаров и обеспечение правильного расположения кнопок */
+.button-container {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  width: 100%;
+  overflow: hidden;
+}
+
+.button-group {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  flex-shrink: 0;
+  min-width: 0;
+}
+
+.responsive-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+@media (max-width: 640px) {
+  .button-group {
+    flex: 1;
+  }
+  
+  .responsive-button {
+    flex: 1;
+    min-width: 0;
+  }
+}
+
+/* Улучшенная адаптивность для маленьких экранов */
+@media (max-width: 640px) {
+  .responsive-container {
+    padding-left: 0.5rem;
+    padding-right: 0.5rem;
+  }
+  
+  .responsive-text {
+    font-size: 0.875rem;
+    line-height: 1.25rem;
+  }
+  
+  .responsive-spacing {
+    margin-bottom: 1rem;
+  }
+}
+
+@media (max-width: 375px) {
+  .ultra-compact {
+    padding: 0.5rem;
+    font-size: 0.75rem;
+    line-height: 1rem;
+  }
+  
+  .ultra-compact-spacing {
+    margin: 0.25rem 0;
+  }
+  
+  /* Принудительное предотвращение горизонтального скролла */
+  * {
+    max-width: 100% !important;
+    overflow-x: hidden !important;
+  }
+  
+  .flex {
+    flex-wrap: nowrap !important;
+  }
+  
+  .space-x-1 > :not([hidden]) ~ :not([hidden]) {
+    margin-left: 0.125rem !important;
+  }
+  
+  .space-x-2 > :not([hidden]) ~ :not([hidden]) {
+    margin-left: 0.25rem !important;
+  }
+}
+
+/* Поддержка прозрачности для Tauri */
+html {
+  background: transparent !important;
+}
+
+/* Плавная анимация для переключения темы */
+* {
+  transition: background-color 0.2s ease, border-color 0.2s ease, color 0.2s ease;
+}
+
+/* Скроллбар для темной темы */
+::-webkit-scrollbar {
+  width: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(156, 163, 175, 0.3);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(156, 163, 175, 0.5);
+}
+
+.dark ::-webkit-scrollbar-thumb {
+  background: rgba(75, 85, 99, 0.3);
+}
+
+.dark ::-webkit-scrollbar-thumb:hover {
+  background: rgba(75, 85, 99, 0.5);
+}
+
+/* Кастомные анимации для современного дизайна */
+@keyframes glow {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+.animation-delay-700 {
+  animation-delay: 700ms;
+}
+
+.animation-delay-1000 {
+  animation-delay: 1000ms;
+}
+
+/* Анимация пульсации для частиц */
+@keyframes ping {
+  75%, 100% {
+    transform: scale(2);
+    opacity: 0;
+  }
+}
+
+/* Градиентные анимации */
+@keyframes gradient-x {
+  0%, 100% {
+    transform: translateX(0%);
+  }
+  50% {
+    transform: translateX(100%);
+  }
+}
+
+/* Премиум анимации для топового стиля */
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes scaleIn {
+  from {
+    opacity: 0;
+    transform: scale(0.9) translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+@keyframes slideIn {
+  from {
+    opacity: 0;
+    transform: translateX(-20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes float {
+  0%, 100% {
+    transform: translateY(0px);
+  }
+  50% {
+    transform: translateY(-10px);
+  }
+}
+
+@keyframes glow {
+  0%, 100% {
+    box-shadow: 0 0 20px rgba(28, 205, 170, 0.3);
+  }
+  50% {
+    box-shadow: 0 0 30px rgba(28, 205, 170, 0.6);
+  }
+}
+
+@keyframes pulse-glow {
+  0%, 100% {
+    box-shadow: 0 0 0 0 rgba(28, 205, 170, 0.7);
+  }
+  70% {
+    box-shadow: 0 0 0 20px rgba(28, 205, 170, 0);
+  }
+}
+
+.animate-fadeIn {
+  animation: fadeIn 0.3s ease-out;
+}
+
+.animate-scaleIn {
+  animation: scaleIn 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.animate-slideIn {
+  animation: slideIn 0.5s ease-out;
+}
+
+.animate-float {
+  animation: float 3s ease-in-out infinite;
+}
+
+.animate-glow {
+  animation: glow 2s ease-in-out infinite;
+}
+
+.animate-pulse-glow {
+  animation: pulse-glow 2s infinite;
+}
+
+/* Градиентный текст для заголовков */
+.gradient-text {
+  background: linear-gradient(135deg, #ffffff 0%, #1ccdaa 50%, #3b82f6 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* Стеклянный морфизм эффект */
+.glass-morphism {
+  backdrop-filter: blur(16px) saturate(180%);
+  background-color: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.125);
+}
+
+/* Неоновое свечение для активных элементов */
+.neon-glow {
+  box-shadow: 
+    0 0 5px rgba(28, 205, 170, 0.5),
+    0 0 10px rgba(28, 205, 170, 0.5),
+    0 0 15px rgba(28, 205, 170, 0.5),
+    0 0 20px rgba(28, 205, 170, 0.5);
+}
+
+/* Анимированный градиентный фон */
+.animated-gradient {
+  background: linear-gradient(-45deg, #1a1a1a, #2a2a2a, #1ccdaa20, #3b82f620);
+  background-size: 400% 400%;
+  animation: gradientShift 15s ease infinite;
+}
+
+@keyframes gradientShift {
+  0% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+  100% {
+    background-position: 0% 50%;
+  }
+}
+
+/* Голографический эффект */
+.holographic {
+  background: linear-gradient(45deg, 
+    transparent 30%, 
+    rgba(28, 205, 170, 0.1) 50%, 
+    transparent 70%
+  );
+  animation: holographicShine 2s linear infinite;
+}
+
+@keyframes holographicShine {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+/* 3D эффект для кнопок */
+.button-3d {
+  transform-style: preserve-3d;
+  transition: transform 0.2s ease;
+}
+
+.button-3d:hover {
+  transform: translateY(-2px) scale(1.02);
+}
+
+.button-3d:active {
+  transform: translateY(0) scale(0.98);
+}
+
+/* Плавное появление элементов */
+.fade-in-up {
+  animation: fadeInUp 0.6s ease-out forwards;
+  opacity: 0;
+  transform: translateY(30px);
+}
+
+@keyframes fadeInUp {
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Анимированные границы */
+.animated-border {
+  position: relative;
+  overflow: hidden;
+}
+
+.animated-border::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(90deg, transparent, rgba(28, 205, 170, 0.6), transparent);
+  animation: borderSlide 2s linear infinite;
+}
+
+@keyframes borderSlide {
+  0% {
+    left: -100%;
+  }
+  100% {
+    left: 100%;
+  }
+}
+
+/* Эффект частиц */
+.particles::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background-image: 
+    radial-gradient(2px 2px at 20px 30px, rgba(28, 205, 170, 0.3), transparent),
+    radial-gradient(1px 1px at 40px 70px, rgba(59, 130, 246, 0.3), transparent),
+    radial-gradient(1px 1px at 90px 20px, rgba(168, 85, 247, 0.3), transparent);
+  background-size: 100px 100px;
+  animation: particleFloat 20s linear infinite;
+  pointer-events: none;
+}
+
+@keyframes particleFloat {
+  0% {
+    transform: translateY(0) rotate(0deg);
+  }
+  100% {
+    transform: translateY(-100px) rotate(360deg);
+  }
+}
+
+/* Скроллбар стилизация */
+::-webkit-scrollbar {
+  width: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: linear-gradient(45deg, #1ccdaa, #3b82f6);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(45deg, #18b894, #2563eb);
+}
+
+/* Дополнительные утилиты */
+.text-shadow {
+  text-shadow: 0 2px 4px rgba(0, 0, 0, 0.5);
+}
+
+.image-glow {
+  filter: drop-shadow(0 0 10px rgba(28, 205, 170, 0.3));
+}
+
+.backdrop-blur-strong {
+  backdrop-filter: blur(20px) saturate(180%);
+}
