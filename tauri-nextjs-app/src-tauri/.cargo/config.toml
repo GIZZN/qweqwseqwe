@@ -1,0 +1,10 @@
+[build]
+# Limit parallel jobs to avoid system freeze during compilation
+# Set to half your CPU cores (e.g. 4 cores → 2 jobs)
+jobs = 2
+
+[profile.release]
+# Faster linking — reduces RAM usage during build
+lto = false
+codegen-units = 4
+opt-level = 2
