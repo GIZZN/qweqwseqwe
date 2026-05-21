@@ -53,15 +53,38 @@ export default function Profile() {
     setError('');
     cancelledRef.current = false;
 
+    // Tiny helpers: in production the webview origin is tauri://, which the auth API
+    // doesn't allow via CORS. We proxy through Rust commands and fall back to fetch in dev.
+    const httpPost = async (url: string, body?: string): Promise<unknown> => {
+      try {
+        const raw = await invoke<string>('http_proxy_post', { url, bearer: null, body: body ?? null });
+        return JSON.parse(raw);
+      } catch {
+        const r = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          mode: 'cors',
+          body: body ?? '{}',
+        });
+        if (!r.ok) throw new Error(`Сервер вернул ${r.status}`);
+        return r.json();
+      }
+    };
+    const httpGet = async (url: string): Promise<unknown> => {
+      try {
+        const raw = await invoke<string>('http_proxy_get', { url, bearer: null });
+        return JSON.parse(raw);
+      } catch {
+        const r = await fetch(url, { mode: 'cors' });
+        return r.json();
+      }
+    };
+
     try {
       // Step 1: Get one-time token
-      const initRes = await fetch(`${BASE_URL}/api/auth/app/init`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        mode: 'cors',
-      });
-      if (!initRes.ok) throw new Error(`Сервер вернул ${initRes.status}`);
-      const { token } = await initRes.json();
+      const init = (await httpPost(`${BASE_URL}/api/auth/app/init`)) as { token?: string };
+      if (!init?.token) throw new Error('Сервер не вернул токен');
+      const token = init.token;
 
       // Step 2: Open system browser via Rust command
       await invoke('open_auth_url', { url: `${BASE_URL}/auth/app?token=${token}` });
@@ -86,10 +109,11 @@ export default function Profile() {
         }
 
         try {
-          const checkRes = await fetch(`${BASE_URL}/api/auth/app/check?token=${token}`);
-          const data = await checkRes.json();
+          const data = (await httpGet(`${BASE_URL}/api/auth/app/check?token=${token}`)) as {
+            status?: string; jwt?: string; user?: User;
+          };
 
-          if (data.status === 'approved' && data.jwt) {
+          if (data.status === 'approved' && data.jwt && data.user) {
             stopPolling();
             saveJwt(data.jwt);
             setUser(data.user);

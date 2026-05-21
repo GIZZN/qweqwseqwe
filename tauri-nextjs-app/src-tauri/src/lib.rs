@@ -467,6 +467,64 @@ async fn ai_proxy_request(endpoint: String, api_key: String, body: String) -> Re
     Err("Max retries exceeded".to_string())
 }
 
+/// Proxy a GET request through Rust to bypass CORS for the desktop webview.
+/// Used for the auth polling flow where the API rejects the `tauri://` origin.
+#[tauri::command]
+async fn http_proxy_get(url: String, bearer: Option<String>) -> Result<String, String> {
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(30))
+        .build()
+        .map_err(|e| format!("Client build error: {}", e))?;
+
+    let mut req = client.get(&url);
+    if let Some(token) = bearer {
+        if !token.is_empty() {
+            req = req.bearer_auth(token);
+        }
+    }
+
+    let response = req.send().await.map_err(|e| format!("Request failed: {}", e))?;
+    let status = response.status().as_u16();
+    let text = response.text().await.map_err(|e| format!("Read body failed: {}", e))?;
+
+    if status >= 400 {
+        return Err(format!("{}: {}", status, text.chars().take(300).collect::<String>()));
+    }
+    Ok(text)
+}
+
+/// Proxy a POST request (typed JSON) through Rust to bypass CORS for the desktop webview.
+#[tauri::command]
+async fn http_proxy_post(
+    url: String,
+    bearer: Option<String>,
+    body: Option<String>,
+) -> Result<String, String> {
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(30))
+        .build()
+        .map_err(|e| format!("Client build error: {}", e))?;
+
+    let mut req = client
+        .post(&url)
+        .header("Content-Type", "application/json");
+    if let Some(token) = bearer {
+        if !token.is_empty() {
+            req = req.bearer_auth(token);
+        }
+    }
+    let req = req.body(body.unwrap_or_else(|| "{}".to_string()));
+
+    let response = req.send().await.map_err(|e| format!("Request failed: {}", e))?;
+    let status = response.status().as_u16();
+    let text = response.text().await.map_err(|e| format!("Read body failed: {}", e))?;
+
+    if status >= 400 {
+        return Err(format!("{}: {}", status, text.chars().take(300).collect::<String>()));
+    }
+    Ok(text)
+}
+
 /// True streaming AI proxy: pushes SSE chunks to the frontend through a Tauri Channel
 /// as they arrive over the wire. This makes the first token appear in ~300ms instead
 /// of waiting for the full response (saves 3–10s on the live assistant).
@@ -1652,6 +1710,8 @@ pub fn run() {
       send_message,
       ai_proxy_request,
       ai_proxy_stream,
+      http_proxy_get,
+      http_proxy_post,
       save_assistant_message,
       get_chat_messages,
       get_settings,
