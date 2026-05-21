@@ -44,7 +44,7 @@ export default function Profile() {
   const clearJwt = () => localStorage.removeItem('auth_jwt');
 
   const stopPolling = () => {
-    if (pollingRef.current) { clearInterval(pollingRef.current); pollingRef.current = null; }
+    if (pollingRef.current) { clearTimeout(pollingRef.current); pollingRef.current = null; }
     if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; }
   };
 
@@ -53,87 +53,150 @@ export default function Profile() {
     setError('');
     cancelledRef.current = false;
 
-    // Tiny helpers: in production the webview origin is tauri://, which the auth API
-    // doesn't allow via CORS. We proxy through Rust commands and fall back to fetch in dev.
-    const httpPost = async (url: string, body?: string): Promise<unknown> => {
+    // In production the webview origin is tauri://, which the auth API doesn't allow
+    // via CORS. We proxy through Rust commands and fall back to fetch in dev.
+    // Errors from Rust come as "NNN: body" strings; we expose status separately so the
+    // poller can distinguish 4xx (terminal) from 5xx (transient, retry with backoff).
+    type HttpResp = { ok: boolean; status: number; data: unknown };
+    const httpPost = async (url: string, body?: string): Promise<HttpResp> => {
       try {
         const raw = await invoke<string>('http_proxy_post', { url, bearer: null, body: body ?? null });
-        return JSON.parse(raw);
-      } catch {
-        const r = await fetch(url, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          mode: 'cors',
-          body: body ?? '{}',
-        });
-        if (!r.ok) throw new Error(`Сервер вернул ${r.status}`);
-        return r.json();
+        return { ok: true, status: 200, data: JSON.parse(raw) };
+      } catch (e) {
+        const m = String(e).match(/^(\d{3}):/);
+        if (m) return { ok: false, status: Number(m[1]), data: null };
+        // Not an HTTP error — try direct fetch (dev mode)
+        try {
+          const r = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            mode: 'cors',
+            body: body ?? '{}',
+          });
+          const data = await r.json().catch(() => null);
+          return { ok: r.ok, status: r.status, data };
+        } catch {
+          return { ok: false, status: 0, data: null };
+        }
       }
     };
-    const httpGet = async (url: string): Promise<unknown> => {
+    const httpGet = async (url: string): Promise<HttpResp> => {
       try {
         const raw = await invoke<string>('http_proxy_get', { url, bearer: null });
-        return JSON.parse(raw);
-      } catch {
-        const r = await fetch(url, { mode: 'cors' });
-        return r.json();
+        return { ok: true, status: 200, data: JSON.parse(raw) };
+      } catch (e) {
+        const m = String(e).match(/^(\d{3}):/);
+        if (m) return { ok: false, status: Number(m[1]), data: null };
+        try {
+          const r = await fetch(url, { mode: 'cors' });
+          const data = await r.json().catch(() => null);
+          return { ok: r.ok, status: r.status, data };
+        } catch {
+          return { ok: false, status: 0, data: null };
+        }
       }
     };
 
     try {
       // Step 1: Get one-time token
-      const init = (await httpPost(`${BASE_URL}/api/auth/app/init`)) as { token?: string };
-      if (!init?.token) throw new Error('Сервер не вернул токен');
-      const token = init.token;
+      const initResp = await httpPost(`${BASE_URL}/api/auth/app/init`);
+      if (!initResp.ok) throw new Error(`Сервер вернул ${initResp.status || 'неизвестную'} ошибку`);
+      const token = (initResp.data as { token?: string })?.token;
+      if (!token) throw new Error('Сервер не вернул токен');
 
       // Step 2: Open system browser via Rust command
       await invoke('open_auth_url', { url: `${BASE_URL}/auth/app?token=${token}` });
 
-      // Step 3: Start polling
+      // Step 3: Start polling with self-rescheduling setTimeout (lets us back off on errors).
       setAuthState('waiting');
       setWaitSeconds(0);
 
+      const startedAt = Date.now();
+      const totalTimeoutMs = 10 * 60 * 1000; // 10 min
+      const baseDelayMs = 2000;
+      const maxDelayMs = 8000;
+      let approvedHandled = false; // ignore 'invalid' that follows successful approve
+      let delayMs = baseDelayMs;
+
       timerRef.current = setInterval(() => {
-        setWaitSeconds(s => s + 1);
+        setWaitSeconds(Math.floor((Date.now() - startedAt) / 1000));
       }, 1000);
 
-      let elapsed = 0;
-      pollingRef.current = setInterval(async () => {
-        if (cancelledRef.current) { stopPolling(); return; }
-        elapsed += 2;
-        if (elapsed > 600) {
+      const tick = async () => {
+        if (cancelledRef.current || approvedHandled) { stopPolling(); return; }
+        if (Date.now() - startedAt > totalTimeoutMs) {
           stopPolling();
           setAuthState('error');
           setError('Время ожидания истекло. Попробуйте снова.');
           return;
         }
 
-        try {
-          const data = (await httpGet(`${BASE_URL}/api/auth/app/check?token=${token}`)) as {
-            status?: string; jwt?: string; user?: User;
-          };
+        const resp = await httpGet(`${BASE_URL}/api/auth/app/check?token=${token}`);
 
-          if (data.status === 'approved' && data.jwt && data.user) {
-            stopPolling();
-            saveJwt(data.jwt);
-            setUser(data.user);
-            setAuthState('success');
-            localStorage.setItem('user_profile', JSON.stringify(data.user));
-            invoke('set_auth_status', { isAuthenticated: true, userName: data.user.name }).catch(() => {});
-          } else if (data.status === 'expired') {
-            stopPolling();
-            setAuthState('error');
-            setError('Токен истёк. Попробуйте снова.');
-          } else if (data.status === 'invalid') {
-            stopPolling();
-            setAuthState('error');
-            setError('Ошибка авторизации. Попробуйте снова.');
-          }
-          // 'pending' — continue polling
-        } catch {
-          // Network error — keep polling
+        // Treat any 5xx or network failure as transient — keep polling, exponential backoff.
+        const transient = !resp.ok && (resp.status === 0 || resp.status >= 500 || resp.status === 429);
+        if (transient) {
+          delayMs = Math.min(delayMs * 2, maxDelayMs);
+          pollingRef.current = setTimeout(tick, delayMs);
+          return;
         }
-      }, 2000);
+
+        // 410 Gone — token expired (terminal).
+        if (resp.status === 410) {
+          stopPolling();
+          setAuthState('error');
+          setError('Токен истёк. Попробуйте снова.');
+          return;
+        }
+        // 404 Not Found — token unknown / already consumed (terminal, but only if we haven't
+        // just successfully approved — server marks token used after approve).
+        if (resp.status === 404) {
+          if (approvedHandled) { stopPolling(); return; }
+          stopPolling();
+          setAuthState('error');
+          setError('Ошибка авторизации. Попробуйте снова.');
+          return;
+        }
+        // Other 4xx — terminal error.
+        if (!resp.ok && resp.status >= 400) {
+          stopPolling();
+          setAuthState('error');
+          setError(`Ошибка авторизации (${resp.status}).`);
+          return;
+        }
+
+        const data = resp.data as { status?: string; jwt?: string; user?: User } | null;
+        const status = data?.status;
+
+        if (status === 'approved' && data?.jwt && data?.user?.id && data?.user?.name) {
+          approvedHandled = true;
+          stopPolling();
+          saveJwt(data.jwt);
+          setUser(data.user);
+          setAuthState('success');
+          localStorage.setItem('user_profile', JSON.stringify(data.user));
+          invoke('set_auth_status', { isAuthenticated: true, userName: data.user.name }).catch(() => {});
+          return;
+        }
+        if (status === 'expired') {
+          stopPolling();
+          setAuthState('error');
+          setError('Токен истёк. Попробуйте снова.');
+          return;
+        }
+        if (status === 'invalid') {
+          if (approvedHandled) { stopPolling(); return; }
+          stopPolling();
+          setAuthState('error');
+          setError('Ошибка авторизации. Попробуйте снова.');
+          return;
+        }
+        // 'pending' or anything else — keep polling, reset backoff after success response.
+        delayMs = baseDelayMs;
+        pollingRef.current = setTimeout(tick, delayMs);
+      };
+
+      pollingRef.current = setTimeout(tick, baseDelayMs);
 
     } catch (e) {
       setAuthState('error');
