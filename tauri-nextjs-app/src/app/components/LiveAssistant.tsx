@@ -2,6 +2,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import clsx from 'clsx';
+import { getAIConfig as getCentralAIConfig } from '../features/aiConfig';
 
 interface TranscriptEntry {
   id: string;
@@ -84,16 +85,8 @@ export default function LiveAssistant() {
   }, []);
 
   const getAIConfig = () => {
-    const apiKey = localStorage.getItem('ai_api_key') || '';
-    const provider = localStorage.getItem('ai_provider') || 'openrouter';
-    const aiModel = localStorage.getItem('ai_model') || 'openai/gpt-4o-mini';
-    const customEndpoint = localStorage.getItem('ai_endpoint') || '';
-    let endpoint = 'https://openrouter.ai/api/v1/chat/completions';
-    if (provider === 'openai') endpoint = 'https://api.openai.com/v1/chat/completions';
-    else if (provider === 'gptunnel') endpoint = 'https://gptunnel.ru/v1/chat/completions';
-    else if (provider === 'ollama') endpoint = 'http://localhost:11434/v1/chat/completions';
-    else if (provider === 'custom' && customEndpoint) endpoint = customEndpoint;
-    return { apiKey, aiModel, endpoint };
+    const cfg = getCentralAIConfig();
+    return { apiKey: cfg.apiKey, aiModel: cfg.aiModel, endpoint: cfg.endpoint };
   };
 
   const streamAI = async (messages: { role: string; content: unknown }[], onToken: (t: string) => void, modelOverride?: string): Promise<string> => {
@@ -301,14 +294,7 @@ export default function LiveAssistant() {
     messages: { role: string; content: unknown }[],
     onToken: (t: string) => void,
   ): Promise<string> => {
-    const apiKey = localStorage.getItem('ai_api_key') || '';
-    const provider = localStorage.getItem('ai_provider') || 'openrouter';
-    const customEndpoint = localStorage.getItem('ai_endpoint') || '';
-    let endpoint = 'https://openrouter.ai/api/v1/chat/completions';
-    if (provider === 'openai') endpoint = 'https://api.openai.com/v1/chat/completions';
-    else if (provider === 'gptunnel') endpoint = 'https://gptunnel.ru/v1/chat/completions';
-    else if (provider === 'ollama') endpoint = 'http://localhost:11434/v1/chat/completions';
-    else if (provider === 'custom' && customEndpoint) endpoint = customEndpoint;
+    const { apiKey, endpoint } = getCentralAIConfig();
     if (!apiKey) throw new Error('API ключ не настроен');
     if (abortRef.current) abortRef.current.abort();
     abortRef.current = new AbortController();
@@ -382,10 +368,8 @@ export default function LiveAssistant() {
   const captureScreen = async () => {
     setStatus('generating'); setStatusMsg('Захват экрана...'); setIsGenerating(true); setCurrentAnswer('');
     const t0 = Date.now();
-    const { aiModel: chatModel } = getAIConfig();
-    const provider = localStorage.getItem('ai_provider') || 'openrouter';
+    const { aiModel: chatModel, visionModel: savedVision, provider } = getCentralAIConfig();
     // Список vision-моделей: пробуем по порядку, если 404 — fallback на следующую
-    const savedVision = localStorage.getItem('ai_vision_model') || '';
     const visionCandidates: string[] = [];
     if (savedVision) visionCandidates.push(savedVision);
     if (isVisionModel(chatModel) && !visionCandidates.includes(chatModel)) visionCandidates.push(chatModel);

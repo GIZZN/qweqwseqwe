@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import Image from 'next/image';
 import clsx from 'clsx';
+import { getAIConfig } from '../features/aiConfig';
 
 interface Message {
   id: string;
@@ -403,26 +404,15 @@ export default function InterviewAssistant() {
       const cleanForStorage = userMessage.replace(/!\[.*?\]\(data:image\/[^)]+\)/g, '[изображение]');
       await invoke('send_message', { sessionId: session.id, content: cleanForStorage }).catch(() => {});
 
-      // Get AI settings from localStorage
-      const apiKey = localStorage.getItem('ai_api_key') || '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';
-      const provider = localStorage.getItem('ai_provider') || 'openrouter';
-      const aiModel = localStorage.getItem('ai_model') || 'openai/gpt-4o-mini';
-      const customEndpoint = localStorage.getItem('ai_endpoint') || '';
+      // Get AI settings from central config (single source of truth — AISetup writes here).
+      const { apiKey, provider, aiModel, endpoint } = getAIConfig();
 
       if (!apiKey) {
-        const errMsg: Message = { id: `e-${Date.now()}`, role: 'assistant', content: '⚠️ API ключ не настроен. Перейдите в Настройки ИИ и укажите ключ OpenRouter.', timestamp: new Date().toISOString() };
+        const errMsg: Message = { id: `e-${Date.now()}`, role: 'assistant', content: '⚠️ API ключ не настроен. Перейдите в Настройки ИИ и укажите свой ключ.', timestamp: new Date().toISOString() };
         setSession(prev => prev ? { ...prev, messages: [...prev.messages, errMsg] } : null);
         setIsLoading(false);
         return;
       }
-
-      // Determine endpoint
-      let endpoint = 'https://openrouter.ai/api/v1/chat/completions';
-      if (provider === 'openai') endpoint = 'https://api.openai.com/v1/chat/completions';
-      else if (provider === 'openrouter') endpoint = 'https://openrouter.ai/api/v1/chat/completions';
-      else if (provider === 'gptunnel') endpoint = 'https://gptunnel.ru/v1/chat/completions';
-      else if (provider === 'ollama') endpoint = 'http://localhost:11434/v1/chat/completions';
-      else if (provider === 'custom' && customEndpoint) endpoint = customEndpoint;
 
       // Build messages for AI (include context + history, strip image data URLs from history)
       const activeContext = context || session.context || '';
@@ -616,7 +606,30 @@ export default function InterviewAssistant() {
       setSession(prev => { if (prev) saveChatToStorage(prev); return prev; });
     } catch (error) {
       console.error('Error sending message:', error);
-      // no-op
+      // Surface a helpful, user-facing message instead of silently failing.
+      const errStr = String(error);
+      let friendly = '⚠️ Ошибка генерации ответа.';
+      if (/User not found|invalid_api_key|Invalid API key|401/i.test(errStr)) {
+        friendly = '⚠️ API ключ недействителен или отозван. Перейдите в Настройки ИИ и укажите свой ключ.';
+      } else if (/429|rate.?limit/i.test(errStr)) {
+        friendly = '⚠️ Слишком много запросов. Подождите немного и попробуйте снова.';
+      } else if (/402|insufficient|quota|credit/i.test(errStr)) {
+        friendly = '⚠️ Закончился лимит/баланс у провайдера. Проверьте свой аккаунт.';
+      } else if (/404|model_not_found|not a valid model|No endpoints/i.test(errStr)) {
+        friendly = '⚠️ Выбранная модель недоступна. Откройте Настройки ИИ и выберите другую.';
+      }
+      setSession(prev => {
+        if (!prev) return null;
+        const msgs = [...prev.messages];
+        // If a streaming bubble was created and is still empty, replace it; otherwise append.
+        const lastIdx = msgs.length - 1;
+        if (lastIdx >= 0 && msgs[lastIdx].role === 'assistant' && !msgs[lastIdx].content?.trim()) {
+          msgs[lastIdx] = { ...msgs[lastIdx], content: friendly };
+        } else {
+          msgs.push({ id: `e-${Date.now()}`, role: 'assistant', content: friendly, timestamp: new Date().toISOString() });
+        }
+        return { ...prev, messages: msgs };
+      });
     } finally {
       setIsLoading(false);
     }

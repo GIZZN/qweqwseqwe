@@ -1,6 +1,7 @@
 'use client';
 import { useState, useEffect } from 'react';
 import { invoke } from '@tauri-apps/api/core';
+import { AI_DEFAULTS, saveAIConfig } from '../features/aiConfig';
 
 interface WhisperModelInfo { id: string; name: string; size: string; installed: boolean; }
 interface AISetupProps { onComplete?: () => void; isOnboarding?: boolean; }
@@ -27,11 +28,12 @@ export default function AISetup({ onComplete, isOnboarding = false }: AISetupPro
   const [error, setError] = useState('');
 
   useEffect(() => {
-    const s = localStorage.getItem('ai_api_key') || '';
-    const p = localStorage.getItem('ai_provider') || 'openrouter';
-    const e = localStorage.getItem('ai_endpoint') || '';
-    const m = localStorage.getItem('ai_model') || 'openai/gpt-4o-mini';
-    const vm = localStorage.getItem('ai_vision_model') || 'openai/gpt-4o-mini';
+    // Show user's saved values, otherwise the AI_DEFAULTS so the form is functional out of the box.
+    const s = localStorage.getItem('ai_api_key') ?? AI_DEFAULTS.apiKey;
+    const p = localStorage.getItem('ai_provider') || AI_DEFAULTS.provider;
+    const e = localStorage.getItem('ai_endpoint') ?? AI_DEFAULTS.customEndpoint;
+    const m = localStorage.getItem('ai_model') || AI_DEFAULTS.aiModel;
+    const vm = localStorage.getItem('ai_vision_model') || AI_DEFAULTS.visionModel;
     setApiKey(s);
     setProvider(p);
     setCustomEndpoint(e);
@@ -99,11 +101,14 @@ export default function AISetup({ onComplete, isOnboarding = false }: AISetupPro
   };
 
   const handleSave = () => {
-    localStorage.setItem('ai_api_key', apiKey);
-    localStorage.setItem('ai_provider', provider);
-    localStorage.setItem('ai_endpoint', customEndpoint);
-    localStorage.setItem('ai_model', aiModel);
-    localStorage.setItem('ai_vision_model', visionModel);
+    // Persist via central config so all components (Chat, LiveAssistant) pick up the change.
+    saveAIConfig({
+      apiKey,
+      provider: provider as Parameters<typeof saveAIConfig>[0]['provider'],
+      customEndpoint,
+      aiModel,
+      visionModel,
+    });
     localStorage.setItem('whisper_model', selectedModel);
     invoke('whisper_initialize', { model: selectedModel }).catch(() => {});
     invoke('save_settings', {
