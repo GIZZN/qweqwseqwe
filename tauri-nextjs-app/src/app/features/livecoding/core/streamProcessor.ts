@@ -35,6 +35,34 @@ export class StreamProcessor {
     const { onStateChange = () => {}, onUpdate = () => {}, responseType = 'code' } = options;
     let fullResponse = '';
 
+    // Buffer for an SSE line split across two reads. Without it, a `data: {...}`
+    // line cut at a chunk boundary fails to parse and the token is dropped,
+    // making the response read as if it were truncated mid-thought.
+    let buffer = '';
+
+    const handleData = (data: string): boolean => {
+      if (data === '[DONE]') return true;
+      try {
+        const json = JSON.parse(data);
+        const token: string = json.choices?.[0]?.delta?.content ?? '';
+        if (!token) return false;
+
+        fullResponse += token;
+        onStateChange({ isLoading: false, isStreaming: true, currentResponse: fullResponse });
+        onUpdate({
+          speaker: 'AI',
+          text: fullResponse,
+          isPartial: true,
+          isFinal: false,
+          timestamp: Date.now(),
+          type: responseType,
+        });
+      } catch {
+        // ignore JSON parse errors on partial chunks
+      }
+      return false;
+    };
+
     try {
       onStateChange({ isLoading: false, isStreaming: true, currentResponse: '' });
 
@@ -43,34 +71,23 @@ export class StreamProcessor {
         const { done, value } = await reader.read();
         if (done) break;
 
-        const chunk = this.decoder.decode(value);
-        const lines = chunk.split('\n').filter(l => l.trim() !== '');
+        // stream:true keeps multi-byte UTF-8 chars (e.g. Cyrillic) split across
+        // chunk boundaries intact instead of corrupting them into `�`.
+        buffer += this.decoder.decode(value, { stream: true });
 
-        for (const line of lines) {
+        let nl: number;
+        while ((nl = buffer.indexOf('\n')) !== -1) {
+          const line = buffer.slice(0, nl).trim();
+          buffer = buffer.slice(nl + 1);
           if (!line.startsWith('data: ')) continue;
-          const data = line.substring(6);
-          if (data === '[DONE]') return fullResponse;
-
-          try {
-            const json = JSON.parse(data);
-            const token: string = json.choices?.[0]?.delta?.content ?? '';
-            if (!token) continue;
-
-            fullResponse += token;
-            onStateChange({ isLoading: false, isStreaming: true, currentResponse: fullResponse });
-            onUpdate({
-              speaker: 'AI',
-              text: fullResponse,
-              isPartial: true,
-              isFinal: false,
-              timestamp: Date.now(),
-              type: responseType,
-            });
-          } catch {
-            // ignore JSON parse errors on partial chunks
-          }
+          if (handleData(line.substring(6).trim())) return fullResponse;
         }
       }
+
+      // Flush any final buffered line that arrived without a trailing newline.
+      buffer += this.decoder.decode();
+      const last = buffer.trim();
+      if (last.startsWith('data: ')) handleData(last.substring(6).trim());
     } finally {
       onStateChange({ isLoading: false, isStreaming: false, currentResponse: fullResponse });
       if (fullResponse) {

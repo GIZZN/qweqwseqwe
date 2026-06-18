@@ -3,6 +3,11 @@ import { useState, useLayoutEffect, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import clsx from 'clsx';
 import { PROMPT_PRESETS, getSystemPrompt, saveSystemPrompt } from '../features/prompts/presets';
+import {
+  getLegend, saveLegend, makeBlock, addBlock, updateBlock, removeBlock,
+  type LegendData, type ExperienceBlock,
+} from '../features/legend';
+import LegendEditor from './LegendOverlay/LegendEditor';
 
 const BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'https://diplom-chi-ten.vercel.app';
 
@@ -17,6 +22,7 @@ export default function Profile() {
   const [systemPrompt, setSystemPrompt] = useState('');
   const [promptSaved, setPromptSaved] = useState(false);
   const [selectedPreset, setSelectedPreset] = useState('');
+  const [legend, setLegend] = useState<LegendData | null>(null);
   const [waitSeconds, setWaitSeconds] = useState(0);
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -37,6 +43,8 @@ export default function Profile() {
     }
     // Load system prompt
     setSystemPrompt(getSystemPrompt());
+    // Load experience legend
+    setLegend(getLegend());
     return () => stopPolling();
   }, []);
 
@@ -223,6 +231,20 @@ export default function Profile() {
     invoke('set_auth_status', { isAuthenticated: false, userName: '' }).catch(() => {});
   };
 
+  const openLegendWindow = async () => {
+    const l = legend || getLegend();
+    try {
+      await invoke('open_legend_window', { edge: l.dockEdge, alwaysOnTop: l.alwaysOnTop });
+    } catch (e) {
+      console.error('open_legend_window failed:', e);
+    }
+  };
+
+  const handleLegendChange = (id: string, patch: Partial<ExperienceBlock>) => { updateBlock(id, patch); setLegend(getLegend()); };
+  const handleLegendAdd = () => { addBlock(makeBlock()); setLegend(getLegend()); };
+  const handleLegendRemove = (id: string) => { removeBlock(id); setLegend(getLegend()); };
+  const handleVaultChange = (path: string) => { setLegend(saveLegend({ obsidianVaultPath: path })); };
+
   const formatWait = (s: number) => {
     const m = Math.floor(s / 60);
     const sec = s % 60;
@@ -300,6 +322,40 @@ export default function Profile() {
                   {promptSaved ? '✓ Сохранено' : 'Сохранить'}
                 </button>
               </div>
+            </div>
+
+            {/* Легенда опыта */}
+            <div className={clsx('bg-white/[0.02]', 'mt-4', 'p-5', 'border', 'border-white/[0.08]', 'rounded-xl')}>
+              <div className={clsx('flex', 'justify-between', 'items-center', 'mb-1')}>
+                <h3 className={clsx('font-medium', 'text-white/70', 'text-sm')}>Легенда опыта</h3>
+                <button
+                  onClick={openLegendWindow}
+                  className={clsx('px-3', 'py-1.5', 'rounded-lg', 'text-xs', 'transition-colors')}
+                  style={{ background: 'rgba(28,205,170,0.2)', color: '#1CCDAA' }}
+                >
+                  Открыть окно легенды
+                </button>
+              </div>
+              <p className={clsx('mb-4', 'text-white/40', 'text-xs')}>Записи опыта для оверлей-окна поверх собеседования. Те же данные видны в окне легенды.</p>
+
+              {/* Obsidian vault path */}
+              <label className={clsx('block', 'mb-1', 'text-white/50', 'text-xs')}>Папка Obsidian (для заметок-блоков)</label>
+              <input
+                value={legend?.obsidianVaultPath ?? ''}
+                onChange={e => handleVaultChange(e.target.value)}
+                placeholder="C:\\Users\\you\\ObsidianVault"
+                className={clsx('bg-white/[0.05]', 'mb-4', 'px-3', 'py-2', 'border', 'border-white/[0.1]', 'focus:border-[#1CCDAA]/40', 'rounded-lg', 'focus:outline-none', 'w-full', 'text-white', 'text-sm', 'placeholder-white/30')}
+              />
+
+              {legend && (
+                <LegendEditor
+                  blocks={legend.blocks}
+                  onChange={handleLegendChange}
+                  onAdd={handleLegendAdd}
+                  onRemove={handleLegendRemove}
+                  compact
+                />
+              )}
             </div>
 
             <div className={clsx('bg-white/[0.02]', 'mt-4', 'p-5', 'border', 'border-white/[0.08]', 'rounded-xl')}>

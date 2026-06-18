@@ -148,8 +148,35 @@ pub async fn recorder_stop_and_transcribe() -> Result<String, String> {
 
             let mut state = transcriber.ctx.create_state()
                 .map_err(|e| format!("State error: {:?}", e))?;
+
+            let t_infer = std::time::Instant::now();
             state.full(params, &audio_16k)
                 .map_err(|e| format!("Transcription failed: {:?}", e))?;
+            let infer_ms = t_infer.elapsed().as_millis();
+
+            // Timing diagnostics — appended to a file so they're visible in the
+            // no-console release build. Compare dev vs prod to locate the slowdown.
+            let audio_secs = audio_16k.len() as f32 / 16000.0;
+            let diag = format!(
+                "build={} threads={} physical={} logical={} audio_s={:.2} infer_ms={} rtf={:.2}\nsysinfo: {}\n",
+                if cfg!(debug_assertions) { "debug" } else { "release" },
+                threads,
+                num_cpus::get_physical(),
+                num_cpus::get(),
+                audio_secs,
+                infer_ms,
+                infer_ms as f32 / (audio_secs * 1000.0).max(1.0),
+                whisper_rs::print_system_info(),
+            );
+            println!("[Recorder][timing] {}", diag.trim());
+            let _ = std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(std::env::temp_dir().join("whisper_ptt_timing.log"))
+                .and_then(|mut f| {
+                    use std::io::Write;
+                    f.write_all(diag.as_bytes())
+                });
 
             let num_segments = state.full_n_segments();
             let mut text = String::new();

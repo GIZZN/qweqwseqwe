@@ -547,19 +547,32 @@ export default function InterviewAssistant() {
             if (reader) {
               const decoder = new TextDecoder();
               let acc = '';
-              while (true) {
-                const { done, value } = await reader.read();
-                if (done) break;
-                for (const line of decoder.decode(value).split('\n')) {
+              let buf = '';
+              const drain = (flush: boolean) => {
+                let nl: number;
+                while ((nl = buf.indexOf('\n')) !== -1) {
+                  const line = buf.slice(0, nl);
+                  buf = buf.slice(nl + 1);
                   if (!line.startsWith('data: ')) continue;
-                  const d = line.slice(6); if (d === '[DONE]') break;
+                  const d = line.slice(6).trim();
+                  if (d === '[DONE]') { buf = ''; return; }
                   try {
                     const j = JSON.parse(d);
                     const t = j.choices?.[0]?.delta?.content || '';
                     if (t) { acc += t; applyToken(acc); }
                   } catch {}
                 }
+                if (flush) buf = '';
+              };
+              while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+                // stream:true keeps multi-byte chars split across chunks intact
+                buf += decoder.decode(value, { stream: true });
+                drain(false);
               }
+              buf += decoder.decode();
+              drain(true);
             }
           } catch { throw err; }
         } else {

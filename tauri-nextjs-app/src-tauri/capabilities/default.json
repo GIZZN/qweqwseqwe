@@ -4,7 +4,8 @@
   "description": "enables the default permissions",
   "windows": [
     "main",
-    "popup"
+    "popup",
+    "legend"
   ],
   "permissions": [
     "core:default"

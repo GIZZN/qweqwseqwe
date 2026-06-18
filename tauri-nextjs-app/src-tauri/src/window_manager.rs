@@ -1,4 +1,4 @@
-use tauri::WebviewWindow;
+use tauri::{AppHandle, Manager, WebviewWindow};
 use once_cell::sync::Lazy;
 use parking_lot::RwLock;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -125,6 +125,46 @@ pub fn toggle_always_on_top(window: &WebviewWindow) -> Result<bool, String> {
 /// Проверяет, включен ли режим "Поверх всех окон"
 pub fn is_always_on_top_enabled() -> bool {
     *ALWAYS_ON_TOP_ENABLED.read()
+}
+
+/// Ставит/снимает topmost для КОНКРЕТНОГО окна без изменения глобального флага и
+/// без монитор-потока. Нужно для вторичных окон (popup, legend), т.к.
+/// `enable_always_on_top` рано выходит, если глобальный флаг уже установлен.
+#[cfg(target_os = "windows")]
+pub fn set_topmost_raw(window: &WebviewWindow, enabled: bool) {
+    if let Ok(hwnd) = window.hwnd() {
+        let hwnd = hwnd.0 as HWND;
+        unsafe {
+            let insert_after = if enabled { HWND_TOPMOST } else { HWND_NOTOPMOST };
+            SetWindowPos(hwnd, insert_after, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+            let ex = GetWindowLongW(hwnd, GWL_EXSTYLE);
+            let ex = if enabled { ex | WS_EX_TOPMOST as i32 } else { ex & !(WS_EX_TOPMOST as i32) };
+            SetWindowLongW(hwnd, GWL_EXSTYLE, ex);
+        }
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+pub fn set_topmost_raw(_window: &WebviewWindow, _enabled: bool) {}
+
+/// Применяет "поверх всех окон" ко ВСЕМ окнам: главное окно — через полноценный
+/// механизм (флаг + монитор-поток), вторичные — через `set_topmost_raw`.
+pub fn apply_always_on_top_to_all(app: &AppHandle, enabled: bool) {
+    if let Some(main) = app.get_webview_window("main") {
+        let _ = if enabled { enable_always_on_top(&main) } else { disable_always_on_top(&main) };
+    }
+    for window in app.webview_windows().values() {
+        if window.label() != "main" {
+            set_topmost_raw(window, enabled);
+        }
+    }
+}
+
+/// Скрывает/показывает ВСЕ окна в панели задач.
+pub fn apply_skip_taskbar_to_all(app: &AppHandle, hidden: bool) {
+    for window in app.webview_windows().values() {
+        let _ = window.set_skip_taskbar(hidden);
+    }
 }
 
 #[cfg(target_os = "windows")]

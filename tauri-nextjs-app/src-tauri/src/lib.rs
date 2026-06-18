@@ -22,6 +22,7 @@ mod window_manager;
 mod screen_protection;
 mod hotkey_manager;
 mod popup;
+mod legend_window;
 mod window_behavior;
 mod screenshot;
 mod whisper_commands;
@@ -573,16 +574,41 @@ async fn ai_proxy_stream(
     }
 
     // Stream chunks as they arrive. Frontend parses partial SSE between sends.
+    // `chunk()` splits on arbitrary byte boundaries, which can land in the middle
+    // of a multi-byte UTF-8 sequence (Cyrillic is 2 bytes). Decoding each chunk
+    // independently with from_utf8_lossy would corrupt that char into `�`, breaking
+    // the SSE JSON line so the frontend silently drops the token — the response then
+    // reads as if it were cut off mid-thought. To avoid this we keep an incomplete
+    // trailing byte sequence in a buffer and only forward complete UTF-8.
+    let mut buf: Vec<u8> = Vec::new();
     while let Some(chunk) = response
         .chunk()
         .await
         .map_err(|e| format!("Stream error: {}", e))?
     {
-        // Best-effort UTF-8 decode (SSE is text/utf-8 by spec).
-        let s = String::from_utf8_lossy(&chunk).into_owned();
-        if !s.is_empty() {
-            let _ = on_chunk.send(s);
+        buf.extend_from_slice(&chunk);
+        match std::str::from_utf8(&buf) {
+            Ok(valid) => {
+                if !valid.is_empty() {
+                    let _ = on_chunk.send(valid.to_string());
+                }
+                buf.clear();
+            }
+            Err(e) => {
+                let valid_up_to = e.valid_up_to();
+                if valid_up_to > 0 {
+                    // Safe: bytes [0, valid_up_to) are guaranteed valid UTF-8.
+                    let valid = unsafe { std::str::from_utf8_unchecked(&buf[..valid_up_to]) };
+                    let _ = on_chunk.send(valid.to_string());
+                    buf.drain(..valid_up_to);
+                }
+                // Keep the incomplete trailing bytes in `buf` for the next chunk.
+            }
         }
+    }
+    // Flush any leftover bytes (best-effort — stream ended on a boundary).
+    if !buf.is_empty() {
+        let _ = on_chunk.send(String::from_utf8_lossy(&buf).into_owned());
     }
 
     Ok(())
@@ -629,6 +655,87 @@ async fn is_maximized(window: tauri::Window) -> bool {
 fn open_popup_window(window: tauri::WebviewWindow) -> Result<(), String> {
     let app = window.app_handle();
     popup::ensure_popup(&app)
+}
+
+// ── Окно «Легенда опыта» (оверлей, крепится к краю экрана) ──
+
+#[tauri::command]
+fn open_legend_window(
+    window: tauri::WebviewWindow,
+    edge: Option<String>,
+    always_on_top: Option<bool>,
+) -> Result<(), String> {
+    let app = window.app_handle();
+    let edge = edge.unwrap_or_else(|| "right".to_string());
+    legend_window::ensure_legend_window(&app, &edge, always_on_top.unwrap_or(true))
+}
+
+#[tauri::command]
+fn dock_legend_window(window: tauri::WebviewWindow, edge: String) -> Result<(), String> {
+    let app = window.app_handle();
+    if let Some(legend) = app.get_webview_window(legend_window::LEGEND_LABEL) {
+        legend_window::dock_to_edge(&legend, &edge)
+    } else {
+        Err("Окно легенды не открыто".to_string())
+    }
+}
+
+#[derive(Serialize)]
+pub struct ObsidianNote {
+    name: String,
+    path: String,
+    modified: u64,
+}
+
+fn collect_markdown(dir: &Path, out: &mut Vec<ObsidianNote>) {
+    let entries = match fs::read_dir(dir) {
+        Ok(e) => e,
+        Err(_) => return,
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let name = entry.file_name().to_string_lossy().to_string();
+        if path.is_dir() {
+            // Пропускаем служебную папку Obsidian.
+            if name == ".obsidian" || name == ".trash" {
+                continue;
+            }
+            collect_markdown(&path, out);
+        } else if name.to_lowercase().ends_with(".md") {
+            let modified = entry
+                .metadata()
+                .and_then(|m| m.modified())
+                .ok()
+                .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                .map(|d| d.as_millis() as u64)
+                .unwrap_or(0);
+            out.push(ObsidianNote {
+                name,
+                path: path.to_string_lossy().to_string(),
+                modified,
+            });
+        }
+    }
+}
+
+#[tauri::command]
+fn list_obsidian_notes(vault_path: String) -> Result<Vec<ObsidianNote>, String> {
+    let root = Path::new(&vault_path);
+    if !root.exists() || !root.is_dir() {
+        return Err(format!("Папка не найдена: {}", vault_path));
+    }
+    let mut notes = Vec::new();
+    collect_markdown(root, &mut notes);
+    notes.sort_by(|a, b| b.modified.cmp(&a.modified));
+    Ok(notes)
+}
+
+#[tauri::command]
+fn read_obsidian_note(path: String) -> Result<String, String> {
+    if !Path::new(&path).exists() {
+        return Err(format!("Файл не найден: {}", path));
+    }
+    fs::read_to_string(&path).map_err(|e| e.to_string())
 }
 
 // Функция для ИИ-ассистента собеседований
@@ -935,16 +1042,18 @@ fn save_privacy_settings(settings: PrivacySettings) -> Result<(), String> {
 }
 
 #[tauri::command]
-async fn hide_from_taskbar(window: tauri::Window) -> Result<(), String> {
-    window.set_skip_taskbar(true).map_err(|e| e.to_string())?;
-    println!("Приложение скрыто из панели задач");
+async fn hide_from_taskbar(window: tauri::WebviewWindow) -> Result<(), String> {
+    window_manager::apply_skip_taskbar_to_all(window.app_handle(), true);
+    hotkey_manager::set_taskbar_hidden(true);
+    println!("Приложение скрыто из панели задач (все окна)");
     Ok(())
 }
 
 #[tauri::command]
-async fn show_in_taskbar(window: tauri::Window) -> Result<(), String> {
-    window.set_skip_taskbar(false).map_err(|e| e.to_string())?;
-    println!("Приложение показано в панели задач");
+async fn show_in_taskbar(window: tauri::WebviewWindow) -> Result<(), String> {
+    window_manager::apply_skip_taskbar_to_all(window.app_handle(), false);
+    hotkey_manager::set_taskbar_hidden(false);
+    println!("Приложение показано в панели задач (все окна)");
     Ok(())
 }
 
@@ -975,7 +1084,8 @@ async fn show_in_screen_sharing(window: tauri::WebviewWindow) -> Result<(), Stri
 
 #[tauri::command]
 async fn set_protection_mode(window: tauri::WebviewWindow, enabled: bool) -> Result<(), String> {
-    screen_protection::set_protection_mode(&window, enabled).await
+    // Apply to every window (main, popup, legend) so the overlay is hidden too.
+    screen_protection::apply_to_all(window.app_handle(), enabled)
 }
 
 #[tauri::command]
@@ -1559,28 +1669,22 @@ async fn handle_window_message(message_type: String) -> Result<(), String> {
 
 #[tauri::command]
 async fn set_always_on_top(window: tauri::WebviewWindow, enabled: bool) -> Result<(), String> {
-    // Обновляем состояние обработчика событий
     if let Some(state) = window.app_handle().try_state::<WindowEventHandler>() {
         *state.always_on_top_enabled.lock().unwrap() = enabled;
     }
-    
-    if enabled {
-        window_manager::enable_always_on_top(&window)
-    } else {
-        window_manager::disable_always_on_top(&window)
-    }
+    // Применяем ко всем окнам (main, popup, legend).
+    window_manager::apply_always_on_top_to_all(window.app_handle(), enabled);
+    Ok(())
 }
 
 #[tauri::command]
 async fn toggle_always_on_top(window: tauri::WebviewWindow) -> Result<bool, String> {
-    let result = window_manager::toggle_always_on_top(&window)?;
-    
-    // Обновляем состояние обработчика событий
+    let new_state = !window_manager::is_always_on_top_enabled();
+    window_manager::apply_always_on_top_to_all(window.app_handle(), new_state);
     if let Some(state) = window.app_handle().try_state::<WindowEventHandler>() {
-        *state.always_on_top_enabled.lock().unwrap() = result;
+        *state.always_on_top_enabled.lock().unwrap() = new_state;
     }
-    
-    Ok(result)
+    Ok(new_state)
 }
 
 #[tauri::command]
@@ -1658,8 +1762,43 @@ fn get_privacy_indicators() -> Result<Vec<String>, String> {
     Ok(active)
 }
 
+/// Opt the process out of Windows power throttling (EcoQoS) and raise its
+/// priority class. A `windows_subsystem = "windows"` GUI app gets throttled
+/// onto efficiency cores at reduced clocks when it runs in the background
+/// (e.g. while Zoom/Teams is focused) — which makes CPU-bound Whisper
+/// inference several times slower than in `tauri dev` (a console process).
+/// Disabling EXECUTION_SPEED throttling keeps inference at full clocks.
+#[cfg(target_os = "windows")]
+fn optimize_process_for_cpu() {
+  use windows::Win32::System::Threading::{
+    GetCurrentProcess, SetPriorityClass, SetProcessInformation, ProcessPowerThrottling,
+    HIGH_PRIORITY_CLASS, PROCESS_POWER_THROTTLING_CURRENT_VERSION,
+    PROCESS_POWER_THROTTLING_EXECUTION_SPEED, PROCESS_POWER_THROTTLING_STATE,
+  };
+  unsafe {
+    let state = PROCESS_POWER_THROTTLING_STATE {
+      Version: PROCESS_POWER_THROTTLING_CURRENT_VERSION,
+      ControlMask: PROCESS_POWER_THROTTLING_EXECUTION_SPEED,
+      // StateMask = 0 → throttling DISABLED: always run at full speed.
+      StateMask: 0,
+    };
+    let _ = SetProcessInformation(
+      GetCurrentProcess(),
+      ProcessPowerThrottling,
+      &state as *const _ as *const core::ffi::c_void,
+      std::mem::size_of::<PROCESS_POWER_THROTTLING_STATE>() as u32,
+    );
+    let _ = SetPriorityClass(GetCurrentProcess(), HIGH_PRIORITY_CLASS);
+  }
+}
+
+#[cfg(not(target_os = "windows"))]
+fn optimize_process_for_cpu() {}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+  optimize_process_for_cpu();
+
   let event_handler = WindowEventHandler::new();
   let event_handler_clone1 = event_handler.clone();
   let event_handler_clone2 = event_handler.clone();
@@ -1741,6 +1880,10 @@ pub fn run() {
       unmaximize_window, 
       is_maximized,
       open_popup_window,
+      open_legend_window,
+      dock_legend_window,
+      list_obsidian_notes,
+      read_obsidian_note,
       get_ai_response,
       get_hotkey_settings,
       save_hotkey_settings,
@@ -1878,7 +2021,17 @@ pub fn run() {
       Ok(())
     })
     // Добавляем обработчик событий приложения
-    .on_window_event(move |_window, event| {
+    .on_window_event(move |window, event| {
+      // Окно легенды объявлено в конфиге и пряталось при показе. Если позволить
+      // закрытию уничтожить его, повторное открытие уйдёт в рантайм-сборку
+      // прозрачного окна → баг с белым экраном. Поэтому закрытие = скрытие.
+      if window.label() == legend_window::LEGEND_LABEL {
+        if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+          api.prevent_close();
+          let _ = window.hide();
+          return;
+        }
+      }
       event_handler_clone2.on_window_event(event.clone());
     })
     .run(tauri::generate_context!())

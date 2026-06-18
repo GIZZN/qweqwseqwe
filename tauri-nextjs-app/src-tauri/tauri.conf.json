@@ -22,6 +22,20 @@
         "transparent": true,
         "shadow": true,
         "maximizable": true
+      },
+      {
+        "label": "legend",
+        "url": "/legend/",
+        "title": "Легенда опыта",
+        "width": 400,
+        "height": 900,
+        "resizable": true,
+        "decorations": false,
+        "transparent": true,
+        "shadow": false,
+        "maximizable": false,
+        "visible": false,
+        "skipTaskbar": false
       }
     ],
     

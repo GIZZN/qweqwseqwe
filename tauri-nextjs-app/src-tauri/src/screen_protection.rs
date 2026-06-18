@@ -1,4 +1,4 @@
-use tauri::WebviewWindow;
+use tauri::{AppHandle, Manager, WebviewWindow};
 use once_cell::sync::Lazy;
 use parking_lot::RwLock;
 
@@ -101,6 +101,16 @@ pub fn set_protection_mode_sync(window: &WebviewWindow, enabled: bool) -> Result
 /// Проверяет, включена ли защита от захвата экрана
 pub fn is_protection_enabled() -> bool {
     *PROTECTION_ENABLED.read()
+}
+
+/// Применяет режим защиты ко ВСЕМ открытым окнам (main, popup, legend, …).
+/// Best-effort: сбой на одном окне не прерывает остальные.
+pub fn apply_to_all(app: &AppHandle, enabled: bool) -> Result<(), String> {
+    for window in app.webview_windows().values() {
+        let _ = set_protection_mode_internal(window, enabled);
+    }
+    *PROTECTION_ENABLED.write() = enabled;
+    Ok(())
 }
 
 /// Переключает режим защиты от захвата экрана

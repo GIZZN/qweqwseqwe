@@ -58,6 +58,10 @@ pub fn is_taskbar_hidden() -> bool {
     TASKBAR_HIDDEN.load(Ordering::SeqCst)
 }
 
+pub fn set_taskbar_hidden(hidden: bool) {
+    TASKBAR_HIDDEN.store(hidden, Ordering::SeqCst);
+}
+
 static HOTKEY_THREAD_RUNNING: Lazy<AtomicBool> = Lazy::new(|| {
     AtomicBool::new(false)
 });
@@ -229,30 +233,23 @@ fn execute_privacy_action(action_type: &str) -> Result<(), String> {
         "toggle_always_on_top" => {
             let current_state = window_manager::is_always_on_top_enabled();
             let new_state = !current_state;
-            if new_state { window_manager::enable_always_on_top(&window)?; } else { window_manager::disable_always_on_top(&window)?; }
-            if let Some(popup) = popup_window.as_ref() {
-                if new_state { window_manager::enable_always_on_top(popup)?; } else { window_manager::disable_always_on_top(popup)?; }
-            }
+            // Применяем ко всем окнам сразу (main, popup, legend).
+            window_manager::apply_always_on_top_to_all(window.app_handle(), new_state);
             println!("Режим 'Поверх всех окон' {}", if !current_state { "включен" } else { "отключен" });
         },
         
         "toggle_screen_protection" => {
             let current_state = screen_protection::is_protection_enabled();
-            // Выполняем синхронно внутри воркера/главного потока
             let new_state = !current_state;
-            screen_protection::set_protection_mode_sync(&window, new_state)?;
-            if let Some(popup) = popup_window.as_ref() {
-                screen_protection::set_protection_mode_sync(popup, new_state)?;
-            }
+            // Применяем ко всем окнам сразу (main, popup, legend).
+            screen_protection::apply_to_all(window.app_handle(), new_state)?;
             println!("Защита от захвата экрана {}", if !current_state { "включена" } else { "отключена" });
         },
         
         "toggle_taskbar_visibility" => {
             let new_state = !TASKBAR_HIDDEN.load(Ordering::SeqCst);
-            window.set_skip_taskbar(new_state).map_err(|e| e.to_string())?;
-            if let Some(popup) = popup_window.as_ref() {
-                popup.set_skip_taskbar(new_state).map_err(|e| e.to_string())?;
-            }
+            // Применяем ко всем окнам сразу (main, popup, legend).
+            window_manager::apply_skip_taskbar_to_all(window.app_handle(), new_state);
             TASKBAR_HIDDEN.store(new_state, Ordering::SeqCst);
             if new_state {
                 println!("Приложение скрыто из панели задач");
