@@ -5,8 +5,18 @@
  */
 
 import { invoke } from '@tauri-apps/api/core';
+import { notifyAuthExpired } from '../auth/session';
 
 const BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'https://diplom-chi-ten.vercel.app';
+
+/** Rust proxy errors arrive as "NNN: body"; surface a 401/403 as session expiry. */
+function checkAuthError(e: unknown): void {
+  const m = String(e).match(/^(\d{3}):/);
+  if (m) {
+    const status = Number(m[1]);
+    if (status === 401 || status === 403) notifyAuthExpired();
+  }
+}
 
 export interface SessionEvent {
   type: 'chat_message' | 'live_answer' | 'screen_analysis';
@@ -44,15 +54,17 @@ export async function syncSessionEvent(event: SessionEvent): Promise<void> {
       apiKey: jwt,
       body,
     });
-  } catch {
+  } catch (e) {
+    checkAuthError(e);
     // Fallback to direct fetch
     try {
-      await fetch(`${BASE_URL}/api/desktop/sessions`, {
+      const r = await fetch(`${BASE_URL}/api/desktop/sessions`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${jwt}` },
         mode: 'cors',
         body,
       });
+      if (r.status === 401 || r.status === 403) notifyAuthExpired();
     } catch {}
   }
 }

@@ -1,8 +1,11 @@
 'use client';
-import { useState, useLayoutEffect, useRef } from 'react';
+import { useState, useLayoutEffect, useEffect, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import clsx from 'clsx';
 import { PROMPT_PRESETS, getSystemPrompt, saveSystemPrompt } from '../features/prompts/presets';
+import {
+  getStoredUser, clearSession, isJwtExpired, revalidateSession, AUTH_EXPIRED_EVENT,
+} from '../features/auth/session';
 import {
   getLegend, saveLegend, makeBlock, addBlock, updateBlock, removeBlock,
   type LegendData, type ExperienceBlock,
@@ -30,16 +33,28 @@ export default function Profile() {
 
   // Restore session from localStorage BEFORE first paint
   useLayoutEffect(() => {
-    const savedProfile = localStorage.getItem('user_profile');
+    const savedUser = getStoredUser();
     const savedJwt = localStorage.getItem('auth_jwt');
-    if (savedProfile && savedJwt) {
-      try {
-        const parsed = JSON.parse(savedProfile);
-        if (parsed && parsed.id) {
-          setUser(parsed);
-          setAuthState('success');
-        }
-      } catch {}
+    if (savedUser && savedJwt) {
+      if (isJwtExpired(savedJwt)) {
+        // Token is provably past its exp — don't pretend we're logged in.
+        clearSession();
+      } else {
+        // Show the profile optimistically, then confirm with the server.
+        setUser(savedUser);
+        setAuthState('success');
+        // Server revalidation on startup. Fails OPEN: only an explicit 401/403
+        // ('invalid') drops the session; offline / missing route keeps it.
+        revalidateSession(savedJwt).then(result => {
+          if (result === 'invalid') {
+            clearSession();
+            setUser(null);
+            setAuthState('error');
+            setError('Сессия истекла. Войдите снова.');
+            invoke('set_auth_status', { isAuthenticated: false, userName: '' }).catch(() => {});
+          }
+        });
+      }
     }
     // Load system prompt
     setSystemPrompt(getSystemPrompt());
@@ -48,8 +63,22 @@ export default function Profile() {
     return () => stopPolling();
   }, []);
 
+  // Any request that gets a 401 from the server dispatches `auth:expired`;
+  // drop the local session when that happens.
+  useEffect(() => {
+    const onExpired = () => {
+      stopPolling();
+      clearSession();
+      setUser(null);
+      setAuthState('error');
+      setError('Сессия истекла. Войдите снова.');
+      invoke('set_auth_status', { isAuthenticated: false, userName: '' }).catch(() => {});
+    };
+    window.addEventListener(AUTH_EXPIRED_EVENT, onExpired);
+    return () => window.removeEventListener(AUTH_EXPIRED_EVENT, onExpired);
+  }, []);
+
   const saveJwt = (jwt: string) => localStorage.setItem('auth_jwt', jwt);
-  const clearJwt = () => localStorage.removeItem('auth_jwt');
 
   const stopPolling = () => {
     if (pollingRef.current) { clearTimeout(pollingRef.current); pollingRef.current = null; }
@@ -224,8 +253,7 @@ export default function Profile() {
     import('../features/sync/sessionSync').then(({ logoutFromServer }) => {
       logoutFromServer();
     });
-    clearJwt();
-    localStorage.removeItem('user_profile');
+    clearSession();
     setUser(null);
     setAuthState('idle');
     invoke('set_auth_status', { isAuthenticated: false, userName: '' }).catch(() => {});

@@ -178,6 +178,19 @@ pub fn dock_to_edge(window: &WebviewWindow, edge: &str) -> Result<(), String> {
     Ok(())
 }
 
+/// Toggle the legend overlay: if it already exists AND is visible, hide it;
+/// otherwise show (and create/dock) it. Used by the global hotkey so the same
+/// key both opens and closes the overlay.
+pub fn toggle_legend_window(app: &AppHandle, edge: &str, always_on_top: bool) -> Result<(), String> {
+    if let Some(existing) = app.get_webview_window(LEGEND_LABEL) {
+        if existing.is_visible().unwrap_or(false) {
+            existing.hide().map_err(|e| e.to_string())?;
+            return Ok(());
+        }
+    }
+    ensure_legend_window(app, edge, always_on_top)
+}
+
 pub fn ensure_legend_window(app: &AppHandle, edge: &str, always_on_top: bool) -> Result<(), String> {
     // Preferred path: the window is declared in tauri.conf.json (visible:false) so it
     // uses the SAME transparency setup as the main window. Runtime-built transparent

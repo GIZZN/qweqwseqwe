@@ -11,7 +11,7 @@ use serde::{Serialize, Deserialize};
 use std::time::{Instant, Duration};
 use std::sync::mpsc::{channel, Sender, Receiver};
 
-use crate::{cursor_manager, window_manager, screen_protection, popup, window_behavior};
+use crate::{cursor_manager, window_manager, screen_protection, legend_window, window_behavior};
 #[cfg(feature = "transcription")]
 use crate::audio_transcriber;
 
@@ -149,10 +149,10 @@ fn register_default_privacy_hotkeys() -> Result<(), String> {
             is_enabled: true,
         },
         HotkeyAction {
-            id: "open_popup_window".to_string(),
-            name: "Открыть всплывающее окно".to_string(),
-            description: "Открывает/фокусирует отдельное окно приложения (popup)".to_string(),
-            action_type: "open_popup_window".to_string(),
+            id: "open_legend_window".to_string(),
+            name: "Открыть легенду".to_string(),
+            description: "Открывает/фокусирует окно «Легенда опыта»".to_string(),
+            action_type: "open_legend_window".to_string(),
             is_enabled: true,
         },
         HotkeyAction {
@@ -171,7 +171,7 @@ fn register_default_privacy_hotkeys() -> Result<(), String> {
         ("toggle_screen_protection", "Ctrl+3"),
         ("toggle_taskbar_visibility", "Ctrl+4"),
         ("transcribe_system_audio", "Ctrl+5"),
-        ("open_popup_window", "Ctrl+6"),
+        ("open_legend_window", "Ctrl+6"),
         ("toggle_maximizable", "Ctrl+7"),
     ];
 
@@ -207,25 +207,19 @@ fn execute_privacy_action(action_type: &str) -> Result<(), String> {
         let guard = WINDOW_HANDLE.read();
         guard.as_ref().ok_or("Окно не найдено")?.clone()
     };
-    // Получаем дополнительные окна приложения (например, popup) для синхронного применения
-    let popup_window = window.app_handle().get_webview_window(crate::popup::POPUP_LABEL);
-
     match action_type {
         "toggle_standard_cursor" => {
             let current_state = cursor_manager::is_standard_cursor_enabled();
             let new_state = !current_state;
             if new_state { cursor_manager::enable_standard_cursor(&window)?; } else { cursor_manager::disable_standard_cursor(&window)?; }
-            if let Some(popup) = popup_window.as_ref() {
-                if new_state { cursor_manager::enable_standard_cursor(popup)?; } else { cursor_manager::disable_standard_cursor(popup)?; }
-            }
             println!("Стандартный курсор {}", if !current_state { "включен" } else { "отключен" });
         },
-        
-        "open_popup_window" => {
+
+        "open_legend_window" => {
             if let Ok(handle) = app_handle() {
                 let app: tauri::AppHandle = handle.clone();
                 let _ = handle.run_on_main_thread(move || {
-                    let _ = popup::ensure_popup(&app);
+                    let _ = legend_window::toggle_legend_window(&app, "right", true);
                 });
             }
         },
@@ -260,9 +254,6 @@ fn execute_privacy_action(action_type: &str) -> Result<(), String> {
         
         "toggle_maximizable" => {
             let new_state = window_behavior::toggle_maximizable(&window)?;
-            if let Some(popup) = popup_window.as_ref() {
-                let _ = window_behavior::set_maximizable(popup, new_state);
-            }
             println!("Maximizable {}", if new_state { "включен" } else { "выключен" });
         },
         

@@ -31,7 +31,7 @@ export const actionTypes = [
   { value: 'toggle_always_on_top', label: 'Поверх всех окон' },
   { value: 'toggle_screen_protection', label: 'Защита от захвата экрана' },
   { value: 'toggle_taskbar_visibility', label: 'Вид в панели задач' },
-  { value: 'open_popup_window', label: 'Открыть окно (popup)' },
+  { value: 'open_legend_window', label: 'Открыть легенду' },
 ];
 
 export const audioQualities = [

@@ -21,7 +21,6 @@ mod cursor_manager;
 mod window_manager;
 mod screen_protection;
 mod hotkey_manager;
-mod popup;
 mod legend_window;
 mod window_behavior;
 mod screenshot;
@@ -650,13 +649,6 @@ async fn is_maximized(window: tauri::Window) -> bool {
     window.is_maximized().unwrap_or(false)
 }
 
-// Открытие отдельного всплывающего окна (popup) как отдельного окна Tauri
-#[tauri::command]
-fn open_popup_window(window: tauri::WebviewWindow) -> Result<(), String> {
-    let app = window.app_handle();
-    popup::ensure_popup(&app)
-}
-
 // ── Окно «Легенда опыта» (оверлей, крепится к краю экрана) ──
 
 #[tauri::command]
@@ -845,8 +837,13 @@ fn open_auth_url(url: Option<String>) -> Result<(), String> {
     
     #[cfg(target_os = "windows")]
     {
+        use std::os::windows::process::CommandExt;
+        // CREATE_NO_WINDOW: spawn cmd without a console window so no terminal
+        // flashes on screen while it launches the default browser via `start`.
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
         std::process::Command::new("cmd")
             .args(["/c", "start", "", &target])
+            .creation_flags(CREATE_NO_WINDOW)
             .spawn()
             .map_err(|e| format!("Failed to open browser: {}", e))?;
     }
@@ -1158,10 +1155,10 @@ impl Default for HotkeySettings {
                 },
                 HotkeyBinding {
                     id: Uuid::new_v4().to_string(),
-                    name: "Всплывающее окно".to_string(),
-                    description: "Открывает/фокусирует отдельное окно приложения (popup)".to_string(),
+                    name: "Легенда".to_string(),
+                    description: "Открывает/фокусирует окно «Легенда опыта»".to_string(),
                     key_combination: "Ctrl+6".to_string(),
-                    action_type: "open_popup_window".to_string(),
+                    action_type: "open_legend_window".to_string(),
                     is_enabled: true,
                     created_at: Utc::now(),
                 },
@@ -1879,7 +1876,6 @@ pub fn run() {
       maximize_window, 
       unmaximize_window, 
       is_maximized,
-      open_popup_window,
       open_legend_window,
       dock_legend_window,
       list_obsidian_notes,
