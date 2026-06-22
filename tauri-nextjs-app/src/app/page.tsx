@@ -11,6 +11,9 @@ import StandardCursor from './components/StandardCursor';
 import AISetup from './components/AISetup';
 import LiveAssistant from './components/LiveAssistant';
 import Profile from './components/Profile';
+import Help from './components/Help';
+import AuthGate from './components/AuthGate';
+import { AuthProvider } from './features/auth/AuthProvider';
 
 export default function Home() {
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
@@ -55,6 +58,8 @@ export default function Home() {
         return <HotkeysRefactored />;
       case 'ai-setup':
         return <AISetup />;
+      case 'help':
+        return <Help />;
       case 'live':
         return <LiveAssistant />;
       case 'chat':
@@ -65,26 +70,34 @@ export default function Home() {
 
   return (
     <StandardCursor>
-      {showOnboarding ? (
-        <AISetup isOnboarding onComplete={() => setShowOnboarding(false)} />
-      ) : (
-      <div className='bg-black/95'>
-        <CustomTitleBar isSidebarCollapsed={isSidebarCollapsed} onNavigate={handleNavigation} />
-        <Sidebar 
-          isCollapsed={isSidebarCollapsed} 
-          onToggle={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
-          onNavigate={handleNavigation}
-          currentPage={currentPage}
-          />
-        <div 
-          className={`pt-12 transition-all duration-300 ${
-            isSidebarCollapsed ? 'ml-16' : 'ml-64'
-          }`}
-        >
-          {renderCurrentPage()}
-          </div>
-      </div>
-      )}
+      <AuthProvider>
+        <div className='bg-black/95'>
+          {/* Title bar stays outside the gate so the window is always movable/closable. */}
+          <CustomTitleBar isSidebarCollapsed={isSidebarCollapsed} onNavigate={handleNavigation} />
+          {/* Everything below — onboarding included — requires auth + active Pro. */}
+          <AuthGate>
+            {showOnboarding ? (
+              <AISetup isOnboarding onComplete={() => setShowOnboarding(false)} />
+            ) : (
+              <>
+                <Sidebar
+                  isCollapsed={isSidebarCollapsed}
+                  onToggle={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
+                  onNavigate={handleNavigation}
+                  currentPage={currentPage}
+                />
+                <div
+                  className={`pt-12 transition-all duration-300 ${
+                    isSidebarCollapsed ? 'ml-16' : 'ml-64'
+                  }`}
+                >
+                  {renderCurrentPage()}
+                </div>
+              </>
+            )}
+          </AuthGate>
+        </div>
+      </AuthProvider>
     </StandardCursor>
   );
 }

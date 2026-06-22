@@ -1,8 +1,8 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
-  "productName": "tauri-nextjs-app",
+  "productName": "Interview Assistant",
   "version": "0.1.0",
-  "identifier": "com.mycompany.taurinextjsapp",
+  "identifier": "com.interviewassistant.desktop",
   "build": {
     "frontendDist": "../out",
     "devUrl": "http://localhost:3000",

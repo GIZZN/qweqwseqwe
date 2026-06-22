@@ -517,3 +517,46 @@ html {
 .ui-switch:hover {
   box-shadow: 0 0 0 4px rgba(28, 205, 170, 0.12);
 }
+
+/* ===== Анимация логотипа (экран ожидания подтверждения) ===== */
+
+/* Логотип «дышит» — плавный масштаб + мягкое свечение, без плоского вращения */
+@keyframes logo-breathe {
+  0%, 100% {
+    transform: scale(1);
+    filter: drop-shadow(0 0 8px rgba(28, 205, 170, 0.25));
+  }
+  50% {
+    transform: scale(1.08);
+    filter: drop-shadow(0 0 18px rgba(28, 205, 170, 0.6));
+  }
+}
+.logo-breathe {
+  animation: logo-breathe 2.4s ease-in-out infinite;
+  transform-origin: center;
+  will-change: transform, filter;
+}
+
+/* Сегмент-«комета» бежит по кругу вокруг чёрного знака — индикатор загрузки */
+@keyframes logo-halo-spin {
+  to { transform: rotate(360deg); }
+}
+.logo-halo {
+  animation: logo-halo-spin 1.4s linear infinite;
+  border-radius: 9999px;
+  /* яркая дуга сверху, плавно тающая в прозрачность по кругу */
+  background: conic-gradient(
+    from 0deg,
+    rgba(28, 205, 170, 0) 0deg,
+    rgba(28, 205, 170, 0) 200deg,
+    rgba(28, 205, 170, 0.9) 320deg,
+    #1ccdaa 360deg
+  );
+  -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 4px), #000 calc(100% - 4px));
+          mask: radial-gradient(farthest-side, transparent calc(100% - 4px), #000 calc(100% - 4px));
+  will-change: transform;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .logo-breathe, .logo-halo { animation: none; }
+}
